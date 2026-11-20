@@ -1,38 +1,49 @@
-# TrafficLight V2X — Real-Time 5.9 GHz DSRC & C-V2X Scanner / Decoder for Android + HackRF One
+# 5.9 GHz DSRC & C-V2X Scanner / Decoder for Android + HackRF One
 
-**TrafficLight V2X** (`v1.5`) is a native Android application that connects directly to a **HackRF One** over USB-OTG (no root or Termux required) to monitor, capture, alert on, and decode **5.9 GHz Vehicle-to-Infrastructure (V2I), Vehicle-to-Vehicle (V2V), and Vehicle-to-Pedestrian (V2P)** safety broadcasts in real time.
+**TrafficLight V2X** (`v1.5`) is a portable, passive **5.9 GHz DSRC (IEEE 802.11p / ITS-G5) and C-V2X (PC5) RF scanner, recorder, and real-time protocol decoder** for Android + HackRF One (no root or Termux required).
 
-It includes a live **Traffic Signal GUI** that displays the active traffic light phase (Red, Yellow, Green, Protected Left Arrow) and countdown timer from decoded **SAE J2735 SPaT** broadcasts, alongside a live **RF Spectrum Scope**, **Protocol Inspector**, **customizable Signal Alerts**, and **GPS-tagged `.iq` / `.pcap` logging**.
+Its primary purpose is to **capture 5.9 GHz Intelligent Transportation System (ITS) broadcasts and turn them into human-readable roadway, vehicle, hazard, and safety intelligence** — including nearby vehicle telemetry, roadwork/wrong-way advisories, emergency vehicle alerts, transit signal priority requests, pedestrian safety messages, and intersection timing. As a fun bonus view, it also includes a live **Traffic Signal Head** UI that visualizes decoded intersection `SPaT` broadcasts as a glowing signal with a countdown timer.
 
 ## Screenshots
 
-| Traffic Light GUI & Alert Banner | Live RF Scope & Controls | Protocol Inspector (`SPaT`/`BSM`/`CAM`/`DENM`) | Customizable Signal Alerts |
+| Protocol Inspector (Human-Readable V2X) | Live RF Scope & Scanner | Customizable Signal Alerts | Bonus View: Live Traffic Signal GUI |
 | :---: | :---: | :---: | :---: |
-| <img src="screenshots/01_traffic_light.png" width="210" alt="Traffic Light GUI" /> | <img src="screenshots/02_rf_scope.png" width="210" alt="RF Scope" /> | <img src="screenshots/03_protocol_log.png" width="210" alt="Protocol Inspector" /> | <img src="screenshots/04_signal_alerts.png" width="210" alt="Signal Alerts Menu" /> |
+| <img src="screenshots/03_protocol_log.png" width="210" alt="Protocol Inspector" /> | <img src="screenshots/02_rf_scope.png" width="210" alt="RF Scope" /> | <img src="screenshots/04_signal_alerts.png" width="210" alt="Signal Alerts Menu" /> | <img src="screenshots/01_traffic_light.png" width="210" alt="Traffic Light GUI" /> |
 
 ---
 
-## What the App Does
+## What Human-Readable Information It Decodes
 
-- **Traffic Light GUI (Tab 1):** Renders a glowing traffic signal head with live countdown timer (`minEndTime`) and a Signal Group switcher for every lane/approach broadcast by a traffic light Roadside Unit (RSU).
-- **Live RF Scope (Tab 2):** Real-time 256-bin FFT spectrum + peak-hold display, noise floor / peak dBFS readouts, LNA / VGA / RF Amp controls, live GPS lock status, and automatic `.iq` / `.pcap` / `hits_gps.csv` recording.
-- **Protocol Inspector (Tab 3):** Live scrollable feed of decoded packets (`SPaT`, `MAP`, `BSM`, `TIM`, `SRM`, `SSM`, `RTCM`, `PSM`, `EVA`, `RSA`, `CAM`, `DENM`, `SPATEM`, `MAPEM`, `WSMP`, `802.11`). Tap any packet to expand all decoded fields and its raw hex dump.
+- **Vehicle-to-Vehicle (V2V) Safety Telemetry (`SAE BSM`, `ETSI CAM`):** Nearby connected vehicles' temporary/station ID, GPS coordinates, elevation, speed (mph & km/h), heading, steering angle, transmission gear, vehicle dimensions, and **active braking status**.
+- **Roadway Hazards & Advisories (`SAE TIM`, `RSA`, `ETSI DENM`):** Work zone warnings, wrong-way driving (WWD) alerts, accidents, stationary vehicles, adverse weather, and dynamic speed advisories broadcast by Roadside Units (RSUs).
+- **Emergency & Transit Priority (`SAE EVA`, `SRM`, `SSM`):** Approaching emergency vehicle alerts (police/fire/EMS) and transit/emergency requests for green-light signal priority at intersections.
+- **Pedestrian & Cyclist Safety (`SAE PSM`):** Vulnerable road user (V2P) safety broadcasts.
+- **Intersection Infrastructure (`SAE SPaT`, `MAP`, `RTCM`, `ETSI SPATEM`, `MAPEM`):** Live signal phases (Red / Yellow / Green / Protected Left Arrow), countdown timers (`minEndTime`), intersection lane geometry, and RSU differential GPS corrections.
+- **RF & Location Intelligence:** Live 256-bin FFT spectrum + peak hold, noise floor & peak dBFS, wideband burst detection (for C-V2X PC5 corridors), GPS-tagged `hits_gps.csv` (ready for Google Maps), standard `dsrc_decoded.pcap` (ready for Wireshark), and full raw `.iq` burst recordings.
+
+---
+
+## Core App Features
+
+- **Protocol Inspector:** Scrollable, color-coded live feed of all 14 supported V2X/ITS message types plus general 802.11 frames. Tap any packet to expand all decoded fields, GPS coordinates, and the raw hex dump.
+- **Live RF Scope & Channel Scanner:** Real-time spectrum & peak-hold display with presets for `Scan All DSRC` (`5860–5920 MHz`), 20 MHz C-V2X (`Ch 183 · 5915`, `Ch 181 · 5905`), individual 10 MHz ITS channels (`Ch 172–184`), and `Wi-Fi Test · 5745` for desk verification. Includes LNA/VGA/RF Amp controls and live GPS lock readout.
 - **Customizable Signal Alerts (Bell Icon):**
   - 4 one-tap presets: **Field Drive**, **Lights Only**, **Emergencies**, and **Silent**.
-  - 7 grouped protocol toggles (e.g., mute noisy `RTCM` GPS corrections or `802.11` Wi-Fi while alerting on `SPaT`, `C-V2X_BURST`, and `EVA`/`DENM`).
-  - Independent toggles for **Sound Chime** (distinct tones by priority), **Vibration**, **On-Screen Alert Banner**, **New Intersection / ID Only**, and **Cooldown (`2s / 5s / 10s / 30s`)**.
-- **Built-in SPaT Demo Mode:** Generates genuine bit-packed 802.11p → WSMP → SAE J2735 UPER (`SPaT`, `BSM`) and ETSI GeoNetworking (`CAM`, `DENM`) frames and runs them through the live decoder so you can preview the entire app at your desk.
-- **Field-Drive Friendly:** Automatically keeps the screen awake while scanning (`FLAG_KEEP_SCREEN_ON`) and stamps every hit with the phone's GPS coordinates in `hits_gps.csv` (ready to import into Google Maps).
+  - 7 grouped protocol toggles so you can alert on high-value traffic/safety signals while muting noisy utilities (`RTCM` GPS corrections) or general Wi-Fi.
+  - Separate controls for **Sound Chime** (distinct tones by priority), **Vibration** (double-pulse for Emergency/Hazards), **On-Screen Alert Banner**, **New Intersection / ID Only** deduplication, and **Cooldown (`2s / 5s / 10s / 30s`)**.
+- **Bonus Traffic Signal GUI:** A fun visual companion screen that renders live decoded `SPaT` phase & countdown data as a glowing traffic signal with a Signal Group switcher for different intersection approaches.
+- **Built-in Demo Simulator (`SPaT Demo`):** Generates genuine bit-packed 802.11p → WSMP → SAE J2735 UPER (`SPaT`, `BSM`) and ETSI GeoNetworking (`CAM`, `DENM`) frames and runs them through the live decoder so you can test every screen and alert right at your desk.
+- **Field-Drive Ready:** Automatically keeps the screen awake (`FLAG_KEEP_SCREEN_ON`) while scanning and logs every detection with GPS coordinates to `hits_gps.csv`.
 
 ---
 
 ## How It Works
 
 ```text
-5.85–5.925 GHz RF (RSU / Vehicle)
+5.85–5.925 GHz RF (RSU / Vehicle / Pedestrian)
         │
         ▼
-  HackRF One (USB-OTG, Bias-T OFF)
+  HackRF One (USB-OTG, Bias-T forced OFF)
         │  libhackrf vendor control transfers + bulk int8 I/Q
         ▼
   Native C++17 ARM64 JNI DSP (libdsrc_dsp.so)
@@ -49,12 +60,12 @@ It includes a live **Traffic Signal GUI** that displays the active traffic light
    └─ EU ITS-G5: 802.11 MAC → LLC/SNAP (0x8947) → GeoNetworking → BTP → ETSI ITS
         │
         ▼
-  Jetpack Compose UI + Alerts + Logger (.pcap, .iq, hits_gps.csv)
+  Jetpack Compose UI + Priority Alerts + Logger (.pcap, .iq, hits_gps.csv)
 ```
 
-### Important Notes on Protocol Types
+### Protocol Capabilities (DSRC vs. C-V2X vs. V2N)
 - **DSRC / ITS-G5 (IEEE 802.11p, 10 MHz OFDM):** Decoded **live on-device** into human-readable fields and saved to `dsrc_decoded.pcap`.
-- **C-V2X (3GPP LTE-V2X PC5 Sidelink, 10/20 MHz SC-FDMA):** Detected in real time on the RF Scope (e.g., `Ch 183 · 5915 MHz @ 20 MS/s`), triggers alerts, logs GPS to `hits_gps.csv`, and saves the full `20 MS/s` raw `.iq` burst for offline PC5 decoding (such as `srsRAN 4G`).
+- **C-V2X (3GPP LTE-V2X PC5 Sidelink, 10/20 MHz SC-FDMA):** Detected in real time on the RF Scope (e.g., `Ch 183 · 5915 MHz @ 20 MS/s`), triggers alerts, logs GPS to `hits_gps.csv`, and saves the full `20 MS/s` raw `.iq` burst for offline PC5 decoding (e.g., `srsRAN 4G`).
 - **V2N (Commercial 4G LTE / 5G NR Cellular):** Encrypted by cellular carriers and cannot be decoded with a passive SDR.
 
 ---
@@ -66,12 +77,11 @@ It includes a live **Traffic Signal GUI** that displays the active traffic light
 | **SDR** | **HackRF One** (standalone, or HackRF One + PortaPack H2 switched into **HackRF Mode**) |
 | **Android Device** | 64-bit (`arm64-v8a`) Android 9+ phone or tablet with **USB-OTG Host** support (tested on **Google Pixel 6**, Android 17) |
 | **USB-C OTG Dongle** | USB-C (male) to USB-A (female) OTG adapter, *or* a direct USB-C to Micro-USB OTG data cable |
-| **USB-A to Micro-USB Cable** | **Must be a data cable** (charge-only cables power the LEDs but will not enumerate USB!) |
+| **USB-A to Micro-USB Cable** | **Must be a data cable** (charge-only cables power the LEDs but will not enumerate USB) |
 | **USB Battery Pack + Powered OTG Y-Cable *(Optional)*** | Modern USB-C phones (like Pixel 6) can power the HackRF One (~300–400 mA) directly. Older phones or long multi-hour drives benefit from a powered USB-OTG Y-cable connected to a small 5V USB power bank. |
 | **5.8 / 5.9 GHz Antenna** | Must cover **`5700 – 5950 MHz`** (SMA male connector for HackRF One). Stock telescoping antennas have poor sensitivity at 5.9 GHz. |
 
-### Frequency Range the Antenna Must Cover
-Your antenna should be tuned for **`5700 – 5950 MHz`** (5.7–5.95 GHz) to cover all relevant channels:
+### Required Antenna Frequency Coverage (`5700 – 5950 MHz`)
 - **5725 – 5850 MHz:** 5.8 GHz ISM / 5 GHz Wi-Fi (used for desk sanity-testing via the `Wi-Fi Test · 5745` preset)
 - **5850 – 5895 MHz:** Legacy US DSRC channels (`Ch 172` 5860, `Ch 174` 5870, `Ch 176` 5880, `Ch 178` 5890 MHz)
 - **5895 – 5925 MHz:** Dedicated US FCC ITS / C-V2X Safety Band (`Ch 180` 5900, `Ch 182` 5910, `Ch 184` 5920 MHz, plus 20 MHz aggregated `Ch 181` 5905 and `Ch 183` 5915 MHz)
@@ -79,7 +89,7 @@ Your antenna should be tuned for **`5700 – 5950 MHz`** (5.7–5.95 GHz) to cov
 ### Tested Antenna
 - **Maple Leaf 5.8G 5 dBi Directional Rod Antenna (5700–5950 MHz, SMA, Linear Polarization):**
   https://www.amazon.com/dp/B0DYDMRR2Q?ref=ppx_yo2ov_dt_b_fed_asin_title&th=1
-- **Field tip:** Roadside RSUs typically use **vertical linear polarization** (up to 33 dBm EIRP toward the horizon). Mount or hold the rod **vertically** with clear line-of-sight through a windshield or window, and always keep **Bias-T / Antenna Power OFF** (the app forces Bias-T OFF automatically to protect passive antennas).
+- **Field tip:** Roadside RSUs typically use **vertical linear polarization** (up to 33 dBm EIRP toward the horizon). Keep the rod **vertical** with clear line-of-sight through a windshield or window, and always keep **Bias-T / Antenna Power OFF** (enforced automatically by the app to protect passive antennas).
 
 ---
 
@@ -87,9 +97,9 @@ Your antenna should be tuned for **`5700 – 5950 MHz`** (5.7–5.95 GHz) to cov
 
 | Standard | Protocol / Message | Description |
 |---|---|---|
+| **US SAE J2735 (V2V)** | `BSM` (MsgID 20) | Vehicle temp ID, GPS, speed, heading, steering, gear, brake status |
 | **US SAE J2735 (V2I)** | `SPaT` (MsgID 19) | Traffic light phase (Red/Yellow/Green/Arrow) & countdown timer |
 | **US SAE J2735 (V2I)** | `MAP` (MsgID 18) | Intersection lane geometry & reference GPS |
-| **US SAE J2735 (V2V)** | `BSM` (MsgID 20) | Vehicle temp ID, GPS, speed, heading, steering, brake status |
 | **US SAE J2735 (V2I)** | `TIM` (MsgID 31) | Traveler Information (work zones, speed advisories, wrong-way alerts) |
 | **US SAE J2735 (V2I)** | `SRM` (29) / `SSM` (30) | Transit & emergency vehicle green-light priority request / status |
 | **US SAE J2735 (V2I)** | `RTCM` (MsgID 28) | Differential GPS corrections from RSUs |
@@ -102,38 +112,37 @@ Your antenna should be tuned for **`5700 – 5950 MHz`** (5.7–5.95 GHz) to cov
 
 ## Quick-Start Guide
 
-### 1. Install the APK
-Install `TrafficLightV2X-v1.5.apk` via ADB from a computer:
+### 1. Download & Install the APK
+Download **`TrafficLightV2X-v1.5.apk`** from the [Releases page](https://github.com/drinkingc0ffee/TrafficLight/releases/tag/v1.5) and install via ADB:
 ```bash
 adb install -r TrafficLightV2X-v1.5.apk
 ```
-*(Or copy the APK to your Android device and install it directly by allowing "Install unknown apps".)*
+*(Or copy the APK directly to your Android phone and install it by allowing "Install unknown apps".)*
 
-Approve the **Location** permission prompt on first launch so detections are tagged with GPS coordinates.
+Approve the **Location** permission prompt on first launch so detections are stamped with GPS coordinates.
 
-### 2. Verify the UI Immediately (SPaT Demo Mode)
+### 2. Test the Decoder & Alerts at Your Desk (`SPaT Demo`)
 1. Toggle **SPaT Demo** **ON** in the top bar and tap **Start**.
-2. Watch the glowing **Traffic Signal Head** cycle through Green → Yellow → Red with a live countdown, and tap the Signal Group chips (`SG 2`, `SG 5`, `SG 6`) to switch approaches.
-3. Open the **Protocol** tab and tap any `SPaT`, `BSM`, `CAM`, or `DENM` packet to inspect its unpacked fields and hex dump.
-4. Tap the **yellow bell icon** in the top bar to customize your alert presets and test the chime.
+2. Open the **Protocol** tab and tap any `BSM`, `CAM`, `DENM`, or `SPaT` packet to inspect its unpacked fields and hex dump.
+3. Tap the **yellow bell icon** in the top bar to try the alert presets and **Test Chime**.
+4. Switch to the **Traffic Light** tab to see the bonus glowing signal head and live countdown.
 
-### 3. Verify Live HackRF One Connection at Your Desk
-1. Toggle **SPaT Demo** **OFF**.
-2. Connect the **HackRF One** (with your 5.8 GHz antenna attached) to your Android phone via the **USB-C OTG dongle + Micro-USB data cable**.
-3. Select the **`Wi-Fi Test · 5745`** preset, tap **Start**, and approve the Android USB permission popup.
-4. Open the **RF Scope** and **Protocol** tabs — nearby 5 GHz Wi-Fi beacons (SSIDs and 802.11 frames) should appear, confirming end-to-end RF reception and decoding.
+### 3. Verify Live HackRF One Reception (`Wi-Fi Test · 5745`)
+1. Toggle **SPaT Demo** **OFF** and connect the **HackRF One** (with your 5.8 GHz antenna attached) to your Android phone via the **USB-C OTG dongle + Micro-USB data cable**.
+2. Select **`Wi-Fi Test · 5745`**, tap **Start**, and approve the Android USB permission popup.
+3. Open **RF Scope** and **Protocol** — nearby 5 GHz Wi-Fi beacons (SSIDs and 802.11 frames) should decode live, confirming end-to-end RF hardware and DSP operation.
 
-### 4. Field-Testing Near V2X Intersections
-- Switch to **`Scan All DSRC`** (for 10 MHz legacy/dual-mode 802.11p RSUs on `5860–5920 MHz`) or **`Ch 183 · 5915 (20M C-V2X)`** (for post-transition 20 MHz C-V2X corridors).
-- Recommended starting RF gains: `LNA = 24 dB`, `VGA = 24 dB`, `RF Amp = ON`.
-- **Finding active RSUs:** Look up licensed Roadside Unit coordinates in the **FCC Universal Licensing System (ULS)** under Radio Service Code **`IQ`** (Intelligent Transportation Service) or on the **USDOT Connected Vehicle Deployment Map**.
+### 4. Field-Scanning V2X Corridors
+- Select **`Scan All DSRC`** (10 MHz legacy/dual-mode 802.11p RSUs across `5860–5920 MHz`) or **`Ch 183 · 5915 (20M C-V2X)`** (post-transition 20 MHz C-V2X corridors).
+- Recommended starting gains: `LNA = 24 dB`, `VGA = 24 dB`, `RF Amp = ON`.
+- **Finding active RSUs:** Look up licensed RSU coordinates in the **FCC Universal Licensing System (ULS)** under Radio Service Code **`IQ`** (Intelligent Transportation Service) or on the **USDOT Connected Vehicle Deployment Map**.
 
-### 5. Pulling Captured Files Back to Your Computer
-Captures are stored in the app's external files directory:
+### 5. Exporting Captures to Wireshark & Google Maps
+Captures are stored on the phone at:
 ```text
 /sdcard/Android/data/com.trafficlight.v2x/files/v2x_captures/
-├── dsrc_decoded.pcap        # Open directly in Wireshark (WSMP / ITS / SPATEM dissectors)
-├── hits_gps.csv             # Import into Google Maps / My Maps to plot RSU locations
+├── dsrc_decoded.pcap               # Open directly in Wireshark (WSMP / ITS / SPATEM dissectors)
+├── hits_gps.csv                    # Import into Google Maps / My Maps to plot RSU locations
 └── burst_YYYYMMDD_HHMMSS_*MHz.iq   # Raw HackRF int8 I/Q bursts for offline analysis
 ```
 Pull them over USB with:
@@ -143,7 +152,7 @@ adb pull /sdcard/Android/data/com.trafficlight.v2x/files/v2x_captures/ ./field_c
 
 ---
 
-## Companion macOS Scripts (Included in This Project)
+## Companion macOS Scripts (Included in This Repository)
 
 - **`antenna_check.py`** — Sweeps `5700–5950 MHz` on a Mac-attached HackRF One and generates a text report + PNG power-vs-frequency plot to verify antenna reception.
 - **`v2x_monitor.py`** — Continuous macOS 5.9 GHz DSRC/C-V2X scanner with raw `.iq` recording, zoomed waterfall spectrograms, and automatic offline DSRC decoding.
@@ -152,5 +161,5 @@ adb pull /sdcard/Android/data/com.trafficlight.v2x/files/v2x_captures/ ./field_c
 ---
 
 ## Safety & Legal Notice
-- **Receive-only:** This application and companion scripts are strictly **passive receivers** and never transmit on any frequency.
+- **Passive receive-only:** This application and companion scripts never transmit on any frequency.
 - **Drive safely:** Never operate or stare at the app while driving. Use a passenger or rely on the audio alert chimes and review logged `hits_gps.csv` / `.pcap` files after you park.
