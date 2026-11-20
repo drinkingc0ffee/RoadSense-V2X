@@ -536,14 +536,14 @@ class MainActivity : ComponentActivity() {
                         Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "TrafficLight V2X",
+                                    "RoadSense V2X",
                                     color = Color.White,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "v1.5",
+                                    "v1.6",
                                     color = Color(0xFF58A6FF),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -613,8 +613,8 @@ class MainActivity : ComponentActivity() {
                     NavigationBarItem(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        icon = { Icon(Icons.Default.Traffic, null) },
-                        label = { Text("Traffic Light") }
+                        icon = { Icon(Icons.AutoMirrored.Filled.ListAlt, null) },
+                        label = { Text("Protocol (${packetLog.size})") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == 1,
@@ -625,17 +625,17 @@ class MainActivity : ComponentActivity() {
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        icon = { Icon(Icons.AutoMirrored.Filled.ListAlt, null) },
-                        label = { Text("Protocol (${packetLog.size})") }
+                        icon = { Icon(Icons.Default.Traffic, null) },
+                        label = { Text("Signal View") }
                     )
                 }
             }
         ) { padding ->
             Box(modifier = Modifier.padding(padding).fillMaxSize()) {
                 when (selectedTab) {
-                    0 -> TrafficLightTab()
+                    0 -> ProtocolLogTab()
                     1 -> RfScopeTab()
-                    2 -> ProtocolLogTab()
+                    2 -> TrafficLightTab()
                 }
 
                 // Live On-Screen Alert Banner
