@@ -1,0 +1,20 @@
+# Captures & large binaries
+*.iq
+*.pcap
+*.csv
+*.apk
+scans/
+captures/
+antenna_check/
+
+# Android / Gradle build artifacts
+android/.gradle/
+android/local.properties
+android/app/build/
+android/app/.cxx/
+android/build/
+.DS_Store
+__pycache__/
+*.pyc
+.cursor/
+.vscode/

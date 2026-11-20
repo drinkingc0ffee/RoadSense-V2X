@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HackRF One (VID 0x1D50 = 7504, PID 0x6089 = 24713) -->
+    <usb-device vendor-id="7504" product-id="24713" />
+    <!-- HackRF Jawbreaker (VID 0x1D50, PID 0x604B = 24651) -->
+    <usb-device vendor-id="7504" product-id="24651" />
+</resources>
