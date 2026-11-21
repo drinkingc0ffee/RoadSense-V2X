@@ -178,7 +178,7 @@ static std::vector<float> deinterleave(const std::vector<float>& in, int n_cbps,
     std::vector<float> out(n_cbps, 0.0f);
     int s = std::max(1, n_bpsc / 2);
     for (int j = 0; j < n_cbps; j++) {
-        int i = s * (j / s) + (j + n_cbps - (16 * j) / n_cbps) % s;
+        int i = s * (j / s) + (j + (16 * j) / n_cbps) % s;
         int k = 16 * i - (n_cbps - 1) * ((16 * i) / n_cbps);
         if (k >= 0 && k < n_cbps && j < (int)in.size()) {
             out[k] = in[j];
@@ -349,6 +349,23 @@ Java_com_trafficlight_v2x_dsp_DsrcDsp_decode80211pFrames(
     int dataIdx[48];
     get_data_indices(dataIdx);
 
+    // Precompute unit-norm 64-sample time-domain LTS reference for exact 1-sample symbol sync
+    static bool ltsRefInit = false;
+    static cf ltsRef[64];
+    if (!ltsRefInit) {
+        std::vector<cf> tmp(64);
+        for (int i = 0; i < 64; i++) {
+            int s = (i + 32) & 63; // unshift from -32..+31 to FFT order 0..63
+            tmp[i] = cf(static_cast<float>(LTS_FREQ[s]), 0.0f);
+        }
+        fft_inplace(tmp, true);
+        float normSq = 0.0f;
+        for (int i = 0; i < 64; i++) normSq += std::norm(tmp[i]);
+        float invNorm = 1.0f / std::sqrt(normSq + 1e-12f);
+        for (int i = 0; i < 64; i++) ltsRef[i] = tmp[i] * invNorm;
+        ltsRefInit = true;
+    }
+
     std::vector<std::vector<uint8_t>> decodedFrames;
 
     // Sliding Schmidl-Cox short preamble detector (delay=16, window=48)
@@ -376,29 +393,34 @@ Java_com_trafficlight_v2x_dsp_DsrcDsp_decode80211pFrames(
         if (plateau == 32) {
             // Packet detected! Estimate coarse CFO from short preamble
             float cfo = std::arg(corr) / 16.0f;
-            int ltsStart = n + 32; // approximate start of 160-sample LTS (32 CP + 64 + 64)
-            if (ltsStart + 256 >= N) break;
+            int searchStart = n + 16;
+            int searchEnd = std::min(n + 160, N - 208);
+            if (searchStart >= searchEnd) break;
 
-            // Fine-search LTS symbol boundary by maximizing correlation between the two 64-sample LTS halves
-            int bestOff = ltsStart + 32;
+            // Exact LTS L1 symbol boundary via matched filter against known time-domain LTS
+            int bestOff = searchStart;
             float bestLtsScore = 0.0f;
-            for (int off = ltsStart; off < ltsStart + 64 && off + 128 < N; off++) {
-                cf c(0.0f, 0.0f);
-                float p = 0.0f;
+            for (int off = searchStart; off < searchEnd; off++) {
+                cf c1(0.0f, 0.0f), c2(0.0f, 0.0f);
+                float p1 = 0.0f, p2 = 0.0f;
                 for (int k = 0; k < 64; k++) {
                     cf s1 = x[off + k] * std::polar(1.0f, -cfo * k);
                     cf s2 = x[off + 64 + k] * std::polar(1.0f, -cfo * (k + 64));
-                    c += s2 * std::conj(s1);
-                    p += std::norm(s1) + std::norm(s2);
+                    c1 += s1 * std::conj(ltsRef[k]);
+                    c2 += s2 * std::conj(ltsRef[k]);
+                    p1 += std::norm(s1);
+                    p2 += std::norm(s2);
                 }
-                float sc = (p > 1e-6f) ? (std::abs(c) / (0.5f * p)) : 0.0f;
+                float sc1 = (p1 > 1e-6f) ? (std::abs(c1) / std::sqrt(p1)) : 0.0f;
+                float sc2 = (p2 > 1e-6f) ? (std::abs(c2) / std::sqrt(p2)) : 0.0f;
+                float sc = 0.5f * (sc1 + sc2);
                 if (sc > bestLtsScore) {
                     bestLtsScore = sc;
                     bestOff = off;
                 }
             }
 
-            if (bestLtsScore < 0.55f) {
+            if (bestLtsScore < 0.48f) {
                 plateau = 0;
                 continue;
             }

@@ -21,6 +21,15 @@ class CaptureLogger(private val context: Context) {
     val captureDirPath: String get() = dir.absolutePath
 
     @Synchronized
+    fun clearAllCaptures(): Int {
+        var deleted = 0
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.delete()) deleted++
+        }
+        return deleted
+    }
+
+    @Synchronized
     fun logGpsHit(
         lat: Double?,
         lon: Double?,

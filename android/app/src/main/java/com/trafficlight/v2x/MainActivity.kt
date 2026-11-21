@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
     private val recordIqOnHit = mutableStateOf(true)
     private val alertConfig = mutableStateOf(AlertConfig.fieldDrive())
     private val showAlertMenu = mutableStateOf(false)
+    private val showClearDialog = mutableStateOf(false)
     private val activeBanner = mutableStateOf<Pair<String, String>?>(null) // (protocol, message)
     private val currentLat = mutableStateOf<Double?>(null)
     private val currentLon = mutableStateOf<Double?>(null)
@@ -303,19 +304,40 @@ class MainActivity : ComponentActivity() {
                 startLiveHackRf(dev)
             } else {
                 val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-                val pi = PendingIntent.getBroadcast(
-                    this, 0, Intent(ACTION_USB_PERMISSION),
-                    PendingIntent.FLAG_IMMUTABLE
-                )
+                val permIntent = Intent(ACTION_USB_PERMISSION).setPackage(packageName)
+                val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE
+                } else {
+                    0
+                }
+                val pi = PendingIntent.getBroadcast(this, 0, permIntent, piFlags)
                 statusText.value = "Requesting USB permission for HackRF One..."
                 usbManager.requestPermission(dev, pi)
             }
         }
     }
 
+    private fun clearCapturedData(deleteFiles: Boolean) {
+        packetLog.clear()
+        sweepCount.value = 0
+        burstCount.value = 0
+        latestSpat.value = null
+        latestSpectrum.value = null
+        seenEntityKeys.clear()
+        lastAlertByCategory.clear()
+        activeBanner.value = null
+        if (deleteFiles) {
+            val n = logger.clearAllCaptures()
+            statusText.value = "Cleared log, counters & $n saved capture file(s)"
+        } else {
+            statusText.value = "Cleared log & counters"
+        }
+    }
+
     private fun stopWorker() {
-        workerJob?.cancel()
+        val oldJob = workerJob
         workerJob = null
+        oldJob?.cancel()
         hackRf.close()
         isRunning.value = false
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -325,15 +347,18 @@ class MainActivity : ComponentActivity() {
     private fun startLiveHackRf(dev: UsbDevice) {
         stopWorker()
         if (!hackRf.open(dev)) {
-            statusText.value = "Failed to open HackRF One USB interface"
+            statusText.value = "Failed to open HackRF USB: ${hackRf.lastError}"
             return
         }
         isRunning.value = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        statusText.value = "Live HackRF One active"
+        val fw = hackRf.firmwareVersion.ifEmpty { "connected" }
+        statusText.value = "HackRF One ($fw) active"
 
-        workerJob = scope.launch(Dispatchers.IO) {
+        lateinit var currentJob: Job
+        currentJob = scope.launch(Dispatchers.IO) {
             var scanIdx = 0
+            var consecutiveGlitches = 0
             try {
                 while (isActive) {
                     val preset = CHANNEL_PRESETS[selectedPresetIdx.value]
@@ -362,19 +387,36 @@ class MainActivity : ComponentActivity() {
                     )
 
                     if (iq == null) {
+                        consecutiveGlitches++
+                        val err = hackRf.lastError.ifEmpty { "unknown USB error" }
                         withContext(Dispatchers.Main) {
-                            statusText.value = "USB read glitch — retrying..."
+                            statusText.value = "USB glitch ($consecutiveGlitches): $err"
+                        }
+                        if (consecutiveGlitches >= 2) {
+                            // Re-open HackRF in case of USB stall or power brownout reset
+                            val freshDev = hackRf.findHackRf()
+                            if (freshDev != null && hackRf.hasPermission(freshDev)) {
+                                hackRf.open(freshDev)
+                            }
+                            consecutiveGlitches = 0
                         }
                         delay(300)
                         continue
                     }
+                    consecutiveGlitches = 0
 
-                    // Discard first 5 ms startup transient
-                    val trimSamples = (sr * 0.005).toInt()
+                    // Discard first 15 ms startup transient (HackRF PLL/ADC settle)
+                    val trimSamples = (sr * 0.015).toInt()
                     val spec = DsrcDsp.analyzeSpectrum(iq, trimSamples)
                     val frames = DsrcDsp.decode80211pFrames(iq, trimSamples)
 
-                    val isBurst = spec != null && ((spec.maxPeakDb - spec.noiseFloorDb) >= 12.0f || spec.burstJumpDb >= 4.5f)
+                    // Wideband burst check: require multi-bin occupancy so 1-bin spurs & AWGN peak-hold don't false-trigger
+                    val avgBinsAbove = spec?.let { s -> (24..232).count { i -> s.avgDb[i] - s.noiseFloorDb >= 6.0f } } ?: 0
+                    val peakBinsAbove = spec?.let { s -> (24..232).count { i -> s.peakDb[i] - s.noiseFloorDb >= 13.0f } } ?: 0
+                    val isBurst = spec != null && (
+                        avgBinsAbove >= 28 ||
+                        (spec.burstJumpDb >= 6.0f && peakBinsAbove >= 24)
+                    )
                     val lat = currentLat.value
                     val lon = currentLon.value
                     var savedIqName = ""
@@ -420,9 +462,12 @@ class MainActivity : ComponentActivity() {
                     delay(20)
                 }
             } finally {
-                hackRf.close()
+                if (workerJob === currentJob) {
+                    hackRf.close()
+                }
             }
         }
+        workerJob = currentJob
     }
 
     /**
@@ -543,7 +588,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "v1.6",
+                                    "v1.9",
                                     color = Color(0xFF58A6FF),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -554,8 +599,15 @@ class MainActivity : ComponentActivity() {
                                 statusText.value,
                                 color = if (isRunning.value) Color(0xFF3FB950) else Color(0xFF8B949E),
                                 fontSize = 12.sp,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(onClick = { showClearDialog.value = true }) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = "Clear Data",
+                                tint = Color(0xFF8B949E)
                             )
                         }
                         IconButton(onClick = { showAlertMenu.value = true }) {
@@ -664,6 +716,48 @@ class MainActivity : ComponentActivity() {
 
         if (showAlertMenu.value) {
             AlertSettingsDialog(onDismiss = { showAlertMenu.value = false })
+        }
+
+        if (showClearDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showClearDialog.value = false },
+                containerColor = Color(0xFF161B22),
+                titleContentColor = Color.White,
+                title = { Text("Clear Captured Data", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+                text = {
+                    Text(
+                        "Clear decoded packets, sweep/hit counters, and signal view. You can also delete saved .iq, .pcap, and GPS CSV test files from disk.",
+                        color = Color(0xFFC9D1D9),
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = {
+                                clearCapturedData(deleteFiles = false)
+                                showClearDialog.value = false
+                            }
+                        ) {
+                            Text("Clear Log Only")
+                        }
+                        Button(
+                            onClick = {
+                                clearCapturedData(deleteFiles = true)
+                                showClearDialog.value = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDA3633))
+                        ) {
+                            Text("Clear Log + Saved Files")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDialog.value = false }) {
+                        Text("Cancel", color = Color(0xFF8B949E))
+                    }
+                }
+            )
         }
     }
 
@@ -1030,16 +1124,60 @@ class MainActivity : ComponentActivity() {
         var expandedId by remember { mutableStateOf<Long?>(null) }
 
         if (packetLog.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No decoded packets yet. Tap Start to listen.", color = Color(0xFF8B949E))
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        if (isRunning.value) {
+                            "Listening @ ${"%.1f".format(currentFreqMhz.value)} MHz — waiting for decoded 802.11p / Wi-Fi packets..."
+                        } else {
+                            "No decoded packets yet."
+                        },
+                        color = Color(0xFF8B949E),
+                        fontSize = 14.sp
+                    )
+                    if (!isRunning.value) {
+                        Button(
+                            onClick = { toggleRun() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Start Listening", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
             return
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${packetLog.size} decoded packet(s)",
+                    color = Color(0xFF8B949E),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                TextButton(
+                    onClick = { showClearDialog.value = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color(0xFFF85149), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Clear Data", color = Color(0xFFF85149), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             items(packetLog, key = { it.id }) { pkt ->
                 val expanded = expandedId == pkt.id
                 val badgeColor = when (pkt.protocol) {
@@ -1094,6 +1232,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }
