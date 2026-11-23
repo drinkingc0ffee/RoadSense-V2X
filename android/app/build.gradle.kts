@@ -13,8 +13,8 @@ android {
         applicationId = "com.trafficlight.v2x"
         minSdk = 28
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.9"
+        versionCode = 11
+        versionName = "2.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -61,4 +61,5 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 }

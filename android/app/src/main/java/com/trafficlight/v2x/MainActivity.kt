@@ -7,6 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.location.Location
@@ -20,6 +24,14 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.WindowManager
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
+import org.osmdroid.views.overlay.Polyline
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,12 +76,28 @@ import com.trafficlight.v2x.protocol.LightColor
 import com.trafficlight.v2x.protocol.SpatMessage
 import com.trafficlight.v2x.protocol.V2xDecoder
 import com.trafficlight.v2x.storage.CaptureLogger
+import com.trafficlight.v2x.storage.RsuDatabase
+import com.trafficlight.v2x.storage.RsuProximity
+import com.trafficlight.v2x.storage.RsuSite
 import com.trafficlight.v2x.usb.HackRfUsbDriver
 import kotlinx.coroutines.*
 import kotlin.math.max
 import kotlin.math.min
 
 data class ChannelPreset(val label: String, val freqMhz: Double, val sampleRateHz: Int, val scanAll: Boolean = false)
+
+data class SignalMapHit(
+    val id: Long,
+    val timestamp: String,
+    val lat: Double,
+    val lon: Double,
+    val freqMhz: Double,
+    val rssiDbfs: Float,
+    val protocol: String,
+    val summary: String,
+    val details: Map<String, String>,
+    val spat: SpatMessage? = null
+)
 
 val CHANNEL_PRESETS = listOf(
     ChannelPreset("Scan All DSRC", 5900.0, 10_000_000, scanAll = true),
@@ -113,6 +141,11 @@ class MainActivity : ComponentActivity() {
     private val activeBanner = mutableStateOf<Pair<String, String>?>(null) // (protocol, message)
     private val currentLat = mutableStateOf<Double?>(null)
     private val currentLon = mutableStateOf<Double?>(null)
+    private val rsuSites = mutableStateListOf<RsuSite>()
+    private val nearestRsu = mutableStateOf<RsuProximity?>(null)
+    private val signalMapHits = mutableStateListOf<SignalMapHit>()
+    private val selectedTab = mutableStateOf(0)
+    private var nextMapHitId = 1L
     private val lastAlertByCategory = mutableMapOf<AlertCategory, Long>()
     private val seenEntityKeys = mutableSetOf<String>()
     private var bannerHideJob: Job? = null
@@ -121,6 +154,7 @@ class MainActivity : ComponentActivity() {
     private val gpsListener = LocationListener { loc: Location ->
         currentLat.value = loc.latitude
         currentLon.value = loc.longitude
+        nearestRsu.value = RsuDatabase.nearest(rsuSites, loc.latitude, loc.longitude)
     }
     private val requestLocationPerm = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -160,9 +194,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Configuration.getInstance().userAgentValue = packageName
         hackRf = HackRfUsbDriver(this)
         logger = CaptureLogger(this)
         alertConfig.value = AlertConfig.load(this)
+        rsuSites.addAll(RsuDatabase.load(this))
 
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -201,6 +237,7 @@ class MainActivity : ComponentActivity() {
             if (last != null) {
                 currentLat.value = last.latitude
                 currentLon.value = last.longitude
+                nearestRsu.value = RsuDatabase.nearest(rsuSites, last.latitude, last.longitude)
             }
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 2f, gpsListener)
@@ -319,6 +356,7 @@ class MainActivity : ComponentActivity() {
 
     private fun clearCapturedData(deleteFiles: Boolean) {
         packetLog.clear()
+        signalMapHits.clear()
         sweepCount.value = 0
         burstCount.value = 0
         latestSpat.value = null
@@ -451,12 +489,54 @@ class MainActivity : ComponentActivity() {
                                 if (pkt.spat != null) {
                                     latestSpat.value = pkt.spat
                                 }
+                                if (lat != null && lon != null) {
+                                    signalMapHits.add(
+                                        0,
+                                        SignalMapHit(
+                                            id = nextMapHitId++,
+                                            timestamp = pkt.timestamp,
+                                            lat = lat,
+                                            lon = lon,
+                                            freqMhz = pkt.freqMhz,
+                                            rssiDbfs = pkt.rssiDbfs,
+                                            protocol = pkt.protocol,
+                                            summary = pkt.summary,
+                                            details = pkt.details,
+                                            spat = pkt.spat
+                                        )
+                                    )
+                                    if (signalMapHits.size > 200) signalMapHits.removeAt(signalMapHits.lastIndex)
+                                }
                                 val key = pkt.details["Intersection ID"] ?: pkt.details["BSM Temp ID"] ?: pkt.details["Station ID"] ?: "${pkt.protocol}@${pkt.freqMhz.toInt()}"
                                 triggerHitAlert(pkt.protocol, pkt.summary, key)
                             }
                         } else if (isBurst) {
                             val protoTag = if (sr >= 20_000_000 && freqMhz >= 5895.0) "C-V2X_BURST" else "RF_BURST"
-                            triggerHitAlert(protoTag, "$protoTag @ ${"%.1f".format(freqMhz)} MHz (+${"%.1f".format(spec?.burstJumpDb ?: 0f)} dB)", "$protoTag@${freqMhz.toInt()}")
+                            val burstSum = "$protoTag @ ${"%.1f".format(freqMhz)} MHz (+${"%.1f".format(spec?.burstJumpDb ?: 0f)} dB)"
+                            if (lat != null && lon != null) {
+                                val tsNow = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+                                signalMapHits.add(
+                                    0,
+                                    SignalMapHit(
+                                        id = nextMapHitId++,
+                                        timestamp = tsNow,
+                                        lat = lat,
+                                        lon = lon,
+                                        freqMhz = freqMhz,
+                                        rssiDbfs = spec?.maxPeakDb ?: -60f,
+                                        protocol = protoTag,
+                                        summary = burstSum,
+                                        details = mapOf(
+                                            "Noise Floor" to "${"%.1f".format(spec?.noiseFloorDb ?: -80f)} dBFS",
+                                            "Peak" to "${"%.1f".format(spec?.maxPeakDb ?: -60f)} dBFS",
+                                            "Burst Jump" to "+${"%.1f".format(spec?.burstJumpDb ?: 0f)} dB"
+                                        ),
+                                        spat = null
+                                    )
+                                )
+                                if (signalMapHits.size > 200) signalMapHits.removeAt(signalMapHits.lastIndex)
+                            }
+                            triggerHitAlert(protoTag, burstSum, "$protoTag@${freqMhz.toInt()}")
                         }
                     }
                     delay(20)
@@ -543,6 +623,25 @@ class MainActivity : ComponentActivity() {
                     if (tick % 10 == 0) { // log 1 SPaT packet/sec
                         burstCount.value += 1
                         packetLog.add(0, pkt)
+                        val dLat = currentLat.value ?: 40.7421
+                        val dLon = currentLon.value ?: -74.1783
+                        if (signalMapHits.size < 12) {
+                            signalMapHits.add(
+                                0,
+                                SignalMapHit(
+                                    id = nextMapHitId++,
+                                    timestamp = pkt.timestamp,
+                                    lat = dLat + ((tick % 5) - 2) * 0.0004,
+                                    lon = dLon + ((tick % 3) - 1) * 0.0004,
+                                    freqMhz = pkt.freqMhz,
+                                    rssiDbfs = pkt.rssiDbfs,
+                                    protocol = pkt.protocol,
+                                    summary = pkt.summary,
+                                    details = pkt.details,
+                                    spat = pkt.spat
+                                )
+                            )
+                        }
                         triggerHitAlert(pkt.protocol, pkt.summary, "SPaT#${pkt.spat?.intersectionId}")
                     }
                     if (extraPkt != null) {
@@ -561,7 +660,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MainAppScreen() {
-        var selectedTab by remember { mutableStateOf(0) }
+        val currentTab = selectedTab.value
 
         Scaffold(
             containerColor = Color(0xFF0D1117),
@@ -588,7 +687,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "v1.9",
+                                    "v2.0",
                                     color = Color(0xFF58A6FF),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -663,31 +762,38 @@ class MainActivity : ComponentActivity() {
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF161B22)) {
                     NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
+                        selected = currentTab == 0,
+                        onClick = { selectedTab.value = 0 },
                         icon = { Icon(Icons.AutoMirrored.Filled.ListAlt, null) },
-                        label = { Text("Protocol (${packetLog.size})") }
+                        label = { Text("Protocol") }
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        selected = currentTab == 1,
+                        onClick = { selectedTab.value = 1 },
                         icon = { Icon(Icons.Default.GraphicEq, null) },
                         label = { Text("RF Scope") }
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
+                        selected = currentTab == 2,
+                        onClick = { selectedTab.value = 2 },
+                        icon = { Icon(Icons.Default.Map, null) },
+                        label = { Text("Map") }
+                    )
+                    NavigationBarItem(
+                        selected = currentTab == 3,
+                        onClick = { selectedTab.value = 3 },
                         icon = { Icon(Icons.Default.Traffic, null) },
-                        label = { Text("Signal View") }
+                        label = { Text("Signal") }
                     )
                 }
             }
         ) { padding ->
             Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-                when (selectedTab) {
+                when (currentTab) {
                     0 -> ProtocolLogTab()
                     1 -> RfScopeTab()
-                    2 -> TrafficLightTab()
+                    2 -> MapTab()
+                    3 -> TrafficLightTab()
                 }
 
                 // Live On-Screen Alert Banner
@@ -861,6 +967,303 @@ class MainActivity : ComponentActivity() {
                 Text(subtitle, color = Color(0xFF8B949E), fontSize = 11.sp)
             }
             Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+
+    private fun makeDotDrawable(fillArgb: Int, strokeArgb: Int, radiusPx: Int = 18): BitmapDrawable {
+        val size = radiusPx * 2 + 8
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = AndroidCanvas(bmp)
+        val cx = size / 2f
+        val cy = size / 2f
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = fillArgb
+            style = Paint.Style.FILL
+        }
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = strokeArgb
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+        c.drawCircle(cx, cy, radiusPx.toFloat(), fillPaint)
+        c.drawCircle(cx, cy, radiusPx.toFloat(), strokePaint)
+        return BitmapDrawable(resources, bmp)
+    }
+
+    @Composable
+    fun MapTab() {
+        var selectedHit by remember { mutableStateOf<SignalMapHit?>(null) }
+        var selectedRsu by remember { mutableStateOf<RsuSite?>(null) }
+        var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+        val myLat = currentLat.value
+        val myLon = currentLon.value
+        val prox = nearestRsu.value
+        val hitsSnapshot = signalMapHits.toList()
+        val rsusSnapshot = rsuSites.toList()
+
+        val redDotIcon = remember { makeDotDrawable(0xFFE53935.toInt(), 0xFFFFFFFF.toInt(), 16) }
+        val rsuPinIcon = remember { makeDotDrawable(0xFF00BCD4.toInt(), 0xFFFFFFFF.toInt(), 13) }
+        val meDotIcon = remember { makeDotDrawable(0xFF2979FF.toInt(), 0xFFFFFFFF.toInt(), 17) }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        controller.setZoom(12.5)
+                        val startPt = if (myLat != null && myLon != null) {
+                            GeoPoint(myLat, myLon)
+                        } else {
+                            GeoPoint(40.7480, -74.1750) // Newark / NYC corridor default
+                        }
+                        controller.setCenter(startPt)
+                        mapViewRef = this
+                    }
+                },
+                update = { mv ->
+                    mv.overlays.clear()
+
+                    // 1. Highlighted registered V2X routes / corridors (cyan polylines)
+                    for (corridor in RsuDatabase.REGISTERED_CORRIDORS) {
+                        val poly = Polyline(mv).apply {
+                            setPoints(corridor.points.map { (la, lo) -> GeoPoint(la, lo) })
+                            outlinePaint.color = 0xCC00D4FF.toInt()
+                            outlinePaint.strokeWidth = 10f
+                        }
+                        mv.overlays.add(poly)
+                    }
+
+                    // 2. Registered RSU sites + reception radius circles
+                    for (site in rsusSnapshot) {
+                        val pt = GeoPoint(site.lat, site.lon)
+                        val circle = Polygon(mv).apply {
+                            points = Polygon.pointsAsCircle(pt, site.rangeM)
+                            fillPaint.color = 0x2200D4FF
+                            outlinePaint.color = 0x8800D4FF.toInt()
+                            outlinePaint.strokeWidth = 2f
+                        }
+                        mv.overlays.add(circle)
+
+                        val marker = Marker(mv).apply {
+                            position = pt
+                            icon = rsuPinIcon
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            title = site.name
+                            setOnMarkerClickListener { _, _ ->
+                                selectedHit = null
+                                selectedRsu = site
+                                true
+                            }
+                        }
+                        mv.overlays.add(marker)
+                    }
+
+                    // 3. Phone GPS position (blue dot)
+                    if (myLat != null && myLon != null) {
+                        val meMarker = Marker(mv).apply {
+                            position = GeoPoint(myLat, myLon)
+                            icon = meDotIcon
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            title = "Your Phone"
+                        }
+                        mv.overlays.add(meMarker)
+                    }
+
+                    // 4. Received signals mapped as clickable RED DOTS
+                    for (hit in hitsSnapshot) {
+                        val hitMarker = Marker(mv).apply {
+                            position = GeoPoint(hit.lat, hit.lon)
+                            icon = redDotIcon
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            title = "${hit.protocol} @ ${"%.1f".format(hit.freqMhz)} MHz"
+                            setOnMarkerClickListener { _, _ ->
+                                selectedRsu = null
+                                selectedHit = hit
+                                true
+                            }
+                        }
+                        mv.overlays.add(hitMarker)
+                    }
+
+                    mv.invalidate()
+                }
+            )
+
+            // Top Proximity & Controls Overlay
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xEE161B22)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(10.dp)
+                    .fillMaxWidth()
+            ) {
+                Column(Modifier.padding(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            val proxText = when {
+                                prox != null && prox.inRange ->
+                                    "★ IN RANGE: ${prox.site.name} (${prox.distanceM.toInt()}m)"
+                                prox != null ->
+                                    "Nearest RSU: ${prox.site.name} (${"%.2f".format(prox.distanceM / 1000.0)} km)"
+                                myLat == null ->
+                                    "Waiting for GPS lock (${rsusSnapshot.size} RSUs loaded)"
+                                else ->
+                                    "${rsusSnapshot.size} registered RSUs loaded"
+                            }
+                            Text(
+                                proxText,
+                                color = if (prox?.inRange == true) Color(0xFF3FB950) else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2
+                            )
+                            Text(
+                                "Cyan = Registered V2X Routes/RSUs  •  Red = Received Signals (${hitsSnapshot.size})",
+                                color = Color(0xFF8B949E),
+                                fontSize = 10.sp
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    if (myLat != null && myLon != null) {
+                                        mapViewRef?.controller?.animateTo(GeoPoint(myLat, myLon))
+                                        mapViewRef?.controller?.setZoom(14.5)
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("Me", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    mapViewRef?.controller?.animateTo(GeoPoint(40.7480, -74.1750))
+                                    mapViewRef?.controller?.setZoom(12.0)
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("RSUs", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom Detail Card when a RED SIGNAL DOT is clicked
+            selectedHit?.let { hit ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xF5161B22)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(10.dp)
+                        .fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFFDA3633))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(hit.protocol, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text("${hit.timestamp}  •  ${"%.1f".format(hit.freqMhz)} MHz", color = Color(0xFF58A6FF), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            IconButton(onClick = { selectedHit = null }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8B949E))
+                            }
+                        }
+                        Text(hit.summary, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "GPS: ${"%.5f".format(hit.lat)}, ${"%.5f".format(hit.lon)}  |  RSSI: ${"%.1f".format(hit.rssiDbfs)} dBFS",
+                            color = Color(0xFF8B949E),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        hit.details.entries.take(4).forEach { (k, v) ->
+                            Text("$k: $v", color = Color(0xFFC9D1D9), fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = {
+                                if (hit.spat != null) latestSpat.value = hit.spat
+                                selectedTab.value = 3 // Jump to SPaT Signal View
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Traffic, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("View SPaT Signal Status", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Bottom Detail Card when a CYAN REGISTERED RSU PIN is clicked
+            selectedRsu?.let { site ->
+                val distStr = if (myLat != null && myLon != null) {
+                    val d = RsuDatabase.haversineMeters(myLat, myLon, site.lat, site.lon)
+                    if (d <= site.rangeM) "IN RANGE (${d.toInt()} m)" else "${"%.2f".format(d / 1000.0)} km away"
+                } else "GPS unavailable"
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xF5161B22)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(10.dp)
+                        .fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(site.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { selectedRsu = null }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF8B949E))
+                            }
+                        }
+                        Text(
+                            "Callsign: ${site.callsign}  •  ${site.protocol}  •  ${"%.1f".format(site.freqMhz)} MHz",
+                            color = Color(0xFF58A6FF),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            "Proximity: $distStr  |  Est. Range: ${site.rangeM.toInt()} m",
+                            color = Color(0xFF3FB950),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Button(
+                            onClick = { selectedTab.value = 3 },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Traffic, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("View SPaT Signal Status", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 

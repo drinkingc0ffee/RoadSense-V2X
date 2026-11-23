@@ -1,6 +1,6 @@
 # RoadSense V2X — 5.9 GHz DSRC & C-V2X Scanner / Decoder for Android + HackRF One
 
-**RoadSense V2X** (`v1.9`) is a portable, passive **5.9 GHz DSRC (IEEE 802.11p / ITS-G5) and C-V2X (PC5) RF scanner, recorder, and real-time protocol decoder** for Android + HackRF One (no root or Termux required).
+**RoadSense V2X** (`v2.0`) is a portable, passive **5.9 GHz DSRC (IEEE 802.11p / ITS-G5) and C-V2X (PC5) RF scanner, recorder, and real-time protocol decoder** for Android + HackRF One (no root or Termux required) — plus a companion **macOS 3-tab ncurses TUI** (`macos/roadsense_tui.py`).
 
 Its primary purpose is to **capture 5.9 GHz Intelligent Transportation System (ITS) broadcasts and turn them into human-readable roadway, vehicle, hazard, and safety intelligence** — including nearby vehicle telemetry, roadwork/wrong-way advisories, emergency vehicle alerts, transit signal priority requests, pedestrian safety messages, and intersection timing. As a fun bonus view, it also includes a live **Traffic Signal Head** UI that visualizes decoded intersection `SPaT` broadcasts as a glowing signal with a countdown timer.
 
@@ -113,9 +113,9 @@ Its primary purpose is to **capture 5.9 GHz Intelligent Transportation System (I
 ## Quick-Start Guide
 
 ### 1. Download & Install the APK
-Download **`RoadSenseV2X-v1.9.apk`** from the [Releases page](https://github.com/drinkingc0ffee/RoadSense-V2X/releases/tag/v1.9) and install via ADB:
+Download **`RoadSenseV2X-v2.0.apk`** from the [Releases page](https://github.com/drinkingc0ffee/RoadSense-V2X/releases/tag/v2.0) and install via ADB:
 ```bash
-adb install -r RoadSenseV2X-v1.9.apk
+adb install -r RoadSenseV2X-v2.0.apk
 ```
 *(Or copy the APK directly to your Android phone and install it by allowing "Install unknown apps".)*
 

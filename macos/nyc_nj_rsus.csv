@@ -1,0 +1,33 @@
+name,callsign,lat,lon,freq_mhz,protocol,range_m,source,uls_url
+NYC 1st Ave & 14th St (CVPD),NYCDOT,40.731300,-73.981800,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 1st Ave & 34th St (CVPD),NYCDOT,40.744000,-73.972600,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 1st Ave & 59th St (CVPD),NYCDOT,40.759600,-73.961400,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 2nd Ave & 14th St (CVPD),NYCDOT,40.732400,-73.984500,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 2nd Ave & 34th St (CVPD),NYCDOT,40.745000,-73.975400,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 2nd Ave & 59th St (CVPD),NYCDOT,40.760600,-73.964200,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 5th Ave & 14th St (CVPD),NYCDOT,40.735900,-73.993500,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 5th Ave & 34th St (CVPD),NYCDOT,40.748400,-73.984500,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 5th Ave & 42nd St (CVPD),NYCDOT,40.753600,-73.980900,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 5th Ave & 59th St (CVPD),NYCDOT,40.764400,-73.973000,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 6th Ave & 14th St (CVPD),NYCDOT,40.737200,-73.996600,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 6th Ave & 34th St (CVPD),NYCDOT,40.749800,-73.987800,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 6th Ave & 42nd St (CVPD),NYCDOT,40.754900,-73.984000,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC 6th Ave & 57th St (CVPD),NYCDOT,40.764400,-73.977200,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC FDR Dr & 59th St (CVPD),NYCDOT,40.758200,-73.958500,5905.0,DSRC/C-V2X,700,USDOT_CVPD,https://www.its.dot.gov/deployments/
+NYC FDR Dr & 79th St (CVPD),NYCDOT,40.770500,-73.947600,5905.0,DSRC/C-V2X,700,USDOT_CVPD,https://www.its.dot.gov/deployments/
+Brooklyn Flatbush & Tillary (CVPD),NYCDOT,40.696000,-73.984700,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+Brooklyn Flatbush & Atlantic (CVPD),NYCDOT,40.684500,-73.977600,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+Brooklyn Flatbush & Grand Army Plz,NYCDOT,40.674200,-73.970200,5905.0,DSRC/C-V2X,600,USDOT_CVPD,https://www.its.dot.gov/deployments/
+Newark NJIT Warren St & Univ Ave (ICUC),NEWARK-NJIT,40.742100,-74.178300,5905.0,DSRC/C-V2X,600,NJIT_ICUC,https://www.its.dot.gov/deployments/
+Newark Warren St & MLK Jr Blvd (ICUC),NEWARK-NJIT,40.743200,-74.179800,5905.0,DSRC/C-V2X,600,NJIT_ICUC,https://www.its.dot.gov/deployments/
+Newark Raymond Blvd & MLK Jr Blvd (ICUC),NEWARK-NJIT,40.738800,-74.178500,5905.0,DSRC/C-V2X,600,NJIT_ICUC,https://www.its.dot.gov/deployments/
+Newark Raymond Blvd & Broad St (ICUC),NEWARK-NJIT,40.737600,-74.171200,5905.0,DSRC/C-V2X,600,NJIT_ICUC,https://www.its.dot.gov/deployments/
+Newark Raymond Blvd & Rt 21 McCarter,NEWARK-NJIT,40.735900,-74.165600,5905.0,DSRC/C-V2X,600,NJIT_ICUC,https://www.its.dot.gov/deployments/
+NJDOT US-1 & Quaker Bridge Rd,NJDOT,40.292300,-74.682800,5905.0,DSRC/C-V2X,800,NJDOT_CV,https://www.its.dot.gov/deployments/
+NJDOT US-1 & Alexander Rd (Princeton),NJDOT,40.326600,-74.640700,5905.0,DSRC/C-V2X,800,NJDOT_CV,https://www.its.dot.gov/deployments/
+NJDOT RT280 MP 13 RSU 30 (Newark),WRFR820,40.752139,-74.190278,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
+NJDOT RT280 MP 14 RSU 31 (Newark),WRFR820,40.748056,-74.171889,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
+NJDOT RT46 MP 52 RSU 18 (Fairfield),WRFR820,40.867972,-74.311556,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
+NJDOT RT46 MP 52 RSU 19 (Fairfield),WRFR820,40.870222,-74.307639,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
+NJDOT RT46 MP 53 RSU 21 (Fairfield),WRFR820,40.881639,-74.292083,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
+NJDOT RT46 MP 55 RSU 22 (Fairfield),WRFR820,40.891194,-74.269389,5905.0,Ch180/181/182/184,700,FCC_ULS_WRFR820,https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=4272888
