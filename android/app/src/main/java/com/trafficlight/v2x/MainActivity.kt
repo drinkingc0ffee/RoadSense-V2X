@@ -26,6 +26,9 @@ import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -121,6 +124,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var hackRf: HackRfUsbDriver
     private lateinit var logger: CaptureLogger
+    private lateinit var rsuDb: RsuDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var workerJob: Job? = null
 
@@ -141,7 +145,7 @@ class MainActivity : ComponentActivity() {
     private val activeBanner = mutableStateOf<Pair<String, String>?>(null) // (protocol, message)
     private val currentLat = mutableStateOf<Double?>(null)
     private val currentLon = mutableStateOf<Double?>(null)
-    private val rsuSites = mutableStateListOf<RsuSite>()
+    private val totalRsuCount = mutableStateOf(0)
     private val nearestRsu = mutableStateOf<RsuProximity?>(null)
     private val signalMapHits = mutableStateListOf<SignalMapHit>()
     private val selectedTab = mutableStateOf(0)
@@ -154,7 +158,7 @@ class MainActivity : ComponentActivity() {
     private val gpsListener = LocationListener { loc: Location ->
         currentLat.value = loc.latitude
         currentLon.value = loc.longitude
-        nearestRsu.value = RsuDatabase.nearest(rsuSites, loc.latitude, loc.longitude)
+        nearestRsu.value = rsuDb.nearest(loc.latitude, loc.longitude)
     }
     private val requestLocationPerm = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -197,8 +201,9 @@ class MainActivity : ComponentActivity() {
         Configuration.getInstance().userAgentValue = packageName
         hackRf = HackRfUsbDriver(this)
         logger = CaptureLogger(this)
+        rsuDb = RsuDatabase(this)
+        totalRsuCount.value = rsuDb.totalSites
         alertConfig.value = AlertConfig.load(this)
-        rsuSites.addAll(RsuDatabase.load(this))
 
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -237,7 +242,7 @@ class MainActivity : ComponentActivity() {
             if (last != null) {
                 currentLat.value = last.latitude
                 currentLon.value = last.longitude
-                nearestRsu.value = RsuDatabase.nearest(rsuSites, last.latitude, last.longitude)
+                nearestRsu.value = rsuDb.nearest(last.latitude, last.longitude)
             }
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 2f, gpsListener)
@@ -317,6 +322,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopWorker()
+        try { rsuDb.close() } catch (_: Exception) {}
         try { locationManager?.removeUpdates(gpsListener) } catch (_: Exception) {}
         try { unregisterReceiver(usbReceiver) } catch (_: Exception) {}
         scope.cancel()
@@ -687,7 +693,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    "v2.0",
+                                    "v2.1",
                                     color = Color(0xFF58A6FF),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -995,16 +1001,26 @@ class MainActivity : ComponentActivity() {
         var selectedHit by remember { mutableStateOf<SignalMapHit?>(null) }
         var selectedRsu by remember { mutableStateOf<RsuSite?>(null) }
         var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+        var visibleRsus by remember {
+            mutableStateOf(rsuDb.queryViewport(40.55, 40.95, -74.40, -73.85, limit = 160))
+        }
 
         val myLat = currentLat.value
         val myLon = currentLon.value
         val prox = nearestRsu.value
         val hitsSnapshot = signalMapHits.toList()
-        val rsusSnapshot = rsuSites.toList()
+        val totalRsus = totalRsuCount.value
 
         val redDotIcon = remember { makeDotDrawable(0xFFE53935.toInt(), 0xFFFFFFFF.toInt(), 16) }
-        val rsuPinIcon = remember { makeDotDrawable(0xFF00BCD4.toInt(), 0xFFFFFFFF.toInt(), 13) }
+        val rsuPinIcon = remember { makeDotDrawable(0xFF00BCD4.toInt(), 0xFFFFFFFF.toInt(), 12) }
         val meDotIcon = remember { makeDotDrawable(0xFF2979FF.toInt(), 0xFFFFFFFF.toInt(), 17) }
+
+        fun refreshViewportRsus(mv: MapView) {
+            val bb = mv.boundingBox
+            if (bb.latNorth > bb.latSouth && bb.lonEast > bb.lonWest) {
+                visibleRsus = rsuDb.queryViewport(bb.latSouth, bb.latNorth, bb.lonWest, bb.lonEast, limit = 160)
+            }
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
@@ -1020,6 +1036,17 @@ class MainActivity : ComponentActivity() {
                             GeoPoint(40.7480, -74.1750) // Newark / NYC corridor default
                         }
                         controller.setCenter(startPt)
+                        addMapListener(object : MapListener {
+                            override fun onScroll(event: ScrollEvent?): Boolean {
+                                refreshViewportRsus(this@apply)
+                                return false
+                            }
+                            override fun onZoom(event: ZoomEvent?): Boolean {
+                                refreshViewportRsus(this@apply)
+                                return false
+                            }
+                        })
+                        post { refreshViewportRsus(this) }
                         mapViewRef = this
                     }
                 },
@@ -1036,16 +1063,19 @@ class MainActivity : ComponentActivity() {
                         mv.overlays.add(poly)
                     }
 
-                    // 2. Registered RSU sites + reception radius circles
-                    for (site in rsusSnapshot) {
+                    // 2. Visible registered RSU sites from 8,129+ nationwide SQLite DB
+                    val drawCircles = mv.zoomLevelDouble >= 12.0
+                    for (site in visibleRsus) {
                         val pt = GeoPoint(site.lat, site.lon)
-                        val circle = Polygon(mv).apply {
-                            points = Polygon.pointsAsCircle(pt, site.rangeM)
-                            fillPaint.color = 0x2200D4FF
-                            outlinePaint.color = 0x8800D4FF.toInt()
-                            outlinePaint.strokeWidth = 2f
+                        if (drawCircles) {
+                            val circle = Polygon(mv).apply {
+                                points = Polygon.pointsAsCircle(pt, site.rangeM)
+                                fillPaint.color = 0x2200D4FF
+                                outlinePaint.color = 0x8800D4FF.toInt()
+                                outlinePaint.strokeWidth = 2f
+                            }
+                            mv.overlays.add(circle)
                         }
-                        mv.overlays.add(circle)
 
                         val marker = Marker(mv).apply {
                             position = pt
@@ -1114,9 +1144,9 @@ class MainActivity : ComponentActivity() {
                                 prox != null ->
                                     "Nearest RSU: ${prox.site.name} (${"%.2f".format(prox.distanceM / 1000.0)} km)"
                                 myLat == null ->
-                                    "Waiting for GPS lock (${rsusSnapshot.size} RSUs loaded)"
+                                    "Waiting for GPS lock ($totalRsus US RSUs in DB)"
                                 else ->
-                                    "${rsusSnapshot.size} registered RSUs loaded"
+                                    "$totalRsus US RSUs loaded (${visibleRsus.size} in view)"
                             }
                             Text(
                                 proxText,
@@ -1126,7 +1156,7 @@ class MainActivity : ComponentActivity() {
                                 maxLines = 2
                             )
                             Text(
-                                "Cyan = Registered V2X Routes/RSUs  •  Red = Received Signals (${hitsSnapshot.size})",
+                                "Cyan = Registered V2X RSUs (${visibleRsus.size}/$totalRsus)  •  Red = Signals (${hitsSnapshot.size})",
                                 color = Color(0xFF8B949E),
                                 fontSize = 10.sp
                             )
